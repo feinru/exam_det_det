@@ -213,10 +213,13 @@ def train_one_epoch(
         n_batches += 1
 
     avg_loss = total_loss / n_batches
-    acc = (np.array(all_preds) == np.array(all_labels)).mean()
-    prec = precision_score(all_labels, all_preds, zero_division=0)
-    rec = recall_score(all_labels, all_preds, zero_division=0)
-    f1 = f1_score(all_labels, all_preds, zero_division=0)
+    all_preds_np = np.array(all_preds)
+    all_labels_np = np.array(all_labels).astype(int)
+    acc = (all_preds_np == all_labels_np).mean()
+    # Macro average: menghitung metrik per-kelas lalu rata-rata → adil untuk imbalanced data
+    prec = precision_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
+    rec = recall_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
+    f1 = f1_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
 
     return {
         "loss": avg_loss,
@@ -258,10 +261,13 @@ def validate_one_epoch(
         n_batches += 1
 
     avg_loss = total_loss / n_batches
-    acc = (np.array(all_preds) == np.array(all_labels)).mean()
-    prec = precision_score(all_labels, all_preds, zero_division=0)
-    rec = recall_score(all_labels, all_preds, zero_division=0)
-    f1 = f1_score(all_labels, all_preds, zero_division=0)
+    all_preds_np = np.array(all_preds)
+    all_labels_np = np.array(all_labels).astype(int)
+    acc = (all_preds_np == all_labels_np).mean()
+    # Macro average: menghitung metrik per-kelas lalu rata-rata → adil untuk imbalanced data
+    prec = precision_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
+    rec = recall_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
+    f1 = f1_score(all_labels_np, all_preds_np, average="macro", zero_division=0)
 
     return {
         "loss": avg_loss,
@@ -277,97 +283,131 @@ def validate_one_epoch(
 # ─────────────────────────────────────────────────────────────────
 def plot_training_history(history: dict, output_path: str):
     """
-    Buat grafik 2×2:
-    - Training Loss vs Validation Loss
-    - Training Accuracy vs Validation Accuracy
-    - Learning Rate per epoch
-    - (opsional) epoch best marker
+    Buat grafik 4×2:
+    - Loss (Train vs Val)
+    - Accuracy (Train vs Val)
+    - Precision (Train vs Val, macro-averaged)
+    - Recall (Train vs Val, macro-averaged)
+    - F1-Score (Train vs Val, macro-averaged)
+    - Learning Rate
+    - Summary text panel
     """
     epochs = range(1, len(history["train_loss"]) + 1)
+    best_ep = history.get("best_epoch")
 
-    fig = plt.figure(figsize=(14, 10))
+    fig = plt.figure(figsize=(16, 20))
     fig.suptitle(
-        "Training History — Cheating Detection GRU", fontsize=14, fontweight="bold"
+        "Training History — Cheating Detection GRU\n(Macro-Averaged Metrics)",
+        fontsize=16, fontweight="bold"
     )
-    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.35)
+    gs = gridspec.GridSpec(4, 2, figure=fig, hspace=0.45, wspace=0.3)
+
+    # Warna konsisten
+    c_train = "#2196F3"
+    c_val   = "#F44336"
+    c_best  = "#4CAF50"
+
+    def _add_best_line(ax):
+        if best_ep:
+            ax.axvline(best_ep, color=c_best, linestyle=":", alpha=0.7,
+                       label=f"Best (ep {best_ep})")
 
     # ── Plot 1: Loss ───────────────────────────────────────
     ax1 = fig.add_subplot(gs[0, 0])
-    ax1.plot(
-        epochs, history["train_loss"], label="Train Loss", color="#2196F3", linewidth=2
-    )
-    ax1.plot(
-        epochs,
-        history["val_loss"],
-        label="Val Loss",
-        color="#F44336",
-        linewidth=2,
-        linestyle="--",
-    )
-    if history.get("best_epoch"):
-        ax1.axvline(
-            history["best_epoch"],
-            color="green",
-            linestyle=":",
-            alpha=0.7,
-            label=f"Best (ep {history['best_epoch']})",
-        )
+    ax1.plot(epochs, history["train_loss"], label="Train", color=c_train, linewidth=2)
+    ax1.plot(epochs, history["val_loss"], label="Val", color=c_val, linewidth=2, linestyle="--")
+    _add_best_line(ax1)
     ax1.set_title("Loss per Epoch")
     ax1.set_xlabel("Epoch")
     ax1.set_ylabel("Loss")
-    ax1.legend()
+    ax1.legend(fontsize=8)
     ax1.grid(True, alpha=0.3)
 
     # ── Plot 2: Accuracy ──────────────────────────────────
     ax2 = fig.add_subplot(gs[0, 1])
-    ax2.plot(
-        epochs, history["train_acc"], label="Train Acc", color="#2196F3", linewidth=2
-    )
-    ax2.plot(
-        epochs,
-        history["val_acc"],
-        label="Val Acc",
-        color="#F44336",
-        linewidth=2,
-        linestyle="--",
-    )
-    if history.get("best_epoch"):
-        ax2.axvline(history["best_epoch"], color="green", linestyle=":", alpha=0.7)
+    ax2.plot(epochs, history["train_acc"], label="Train", color=c_train, linewidth=2)
+    ax2.plot(epochs, history["val_acc"], label="Val", color=c_val, linewidth=2, linestyle="--")
+    _add_best_line(ax2)
     ax2.set_title("Accuracy per Epoch")
     ax2.set_xlabel("Epoch")
     ax2.set_ylabel("Accuracy")
     ax2.set_ylim(0, 1.05)
-    ax2.legend()
+    ax2.legend(fontsize=8)
     ax2.grid(True, alpha=0.3)
 
-    # ── Plot 3: Learning Rate ──────────────────────────────
+    # ── Plot 3: Precision (Train vs Val, macro) ──────────
     ax3 = fig.add_subplot(gs[1, 0])
-    ax3.semilogy(epochs, history["lr"], color="#9C27B0", linewidth=2)
-    ax3.set_title("Learning Rate per Epoch")
+    if "train_prec" in history:
+        ax3.plot(epochs, history["train_prec"], label="Train", color=c_train, linewidth=2)
+    ax3.plot(epochs, history["val_prec"], label="Val", color=c_val, linewidth=2, linestyle="--")
+    _add_best_line(ax3)
+    ax3.set_title("Precision (Macro) per Epoch")
     ax3.set_xlabel("Epoch")
-    ax3.set_ylabel("LR (log scale)")
+    ax3.set_ylabel("Precision")
+    ax3.set_ylim(0, 1.05)
+    ax3.legend(fontsize=8)
     ax3.grid(True, alpha=0.3)
 
-    # ── Plot 4: Val Loss (zoom) + early stop marker ────────
+    # ── Plot 4: Recall (Train vs Val, macro) ─────────────
     ax4 = fig.add_subplot(gs[1, 1])
-    ax4.plot(epochs, history["val_loss"], color="#FF9800", linewidth=2)
-    ax4.fill_between(epochs, history["val_loss"], alpha=0.15, color="#FF9800")
-    if history.get("best_epoch"):
-        best_ep = history["best_epoch"]
-        best_val = history["val_loss"][best_ep - 1]
-        ax4.scatter(
-            [best_ep],
-            [best_val],
-            color="green",
-            zorder=5,
-            s=80,
-            label=f"Best Val Loss: {best_val:.4f}",
-        )
-        ax4.legend()
-    ax4.set_title("Validation Loss (detail)")
+    if "train_rec" in history:
+        ax4.plot(epochs, history["train_rec"], label="Train", color=c_train, linewidth=2)
+    ax4.plot(epochs, history["val_rec"], label="Val", color=c_val, linewidth=2, linestyle="--")
+    _add_best_line(ax4)
+    ax4.set_title("Recall (Macro) per Epoch")
     ax4.set_xlabel("Epoch")
-    ax4.set_ylabel("Val Loss")
+    ax4.set_ylabel("Recall")
+    ax4.set_ylim(0, 1.05)
+    ax4.legend(fontsize=8)
     ax4.grid(True, alpha=0.3)
+
+    # ── Plot 5: F1-Score (Train vs Val, macro) ───────────
+    ax5 = fig.add_subplot(gs[2, 0])
+    if "train_f1" in history:
+        ax5.plot(epochs, history["train_f1"], label="Train", color=c_train, linewidth=2)
+    ax5.plot(epochs, history["val_f1"], label="Val", color=c_val, linewidth=2, linestyle="--")
+    _add_best_line(ax5)
+    ax5.set_title("F1-Score (Macro) per Epoch")
+    ax5.set_xlabel("Epoch")
+    ax5.set_ylabel("F1")
+    ax5.set_ylim(0, 1.05)
+    ax5.legend(fontsize=8)
+    ax5.grid(True, alpha=0.3)
+
+    # ── Plot 6: Learning Rate ──────────────────────────────
+    ax6 = fig.add_subplot(gs[2, 1])
+    ax6.semilogy(epochs, history["lr"], color="#607D8B", linewidth=2, label="LR")
+    ax6.set_title("Learning Rate (log scale)")
+    ax6.set_xlabel("Epoch")
+    ax6.set_ylabel("LR")
+    ax6.grid(True, alpha=0.3)
+
+    # ── Plot 7: Summary Text ──────────────────────────────
+    ax7 = fig.add_subplot(gs[3, :])
+    ax7.axis("off")
+    if best_ep:
+        bp = best_ep - 1  # index 0-based
+        summary_lines = [
+            f"Best Epoch: {best_ep}",
+            f"  Val Loss : {history['val_loss'][bp]:.6f}",
+            f"  Val Acc  : {history['val_acc'][bp]:.4f}",
+            f"  Val Prec : {history['val_prec'][bp]:.4f}  (macro)",
+            f"  Val Rec  : {history['val_rec'][bp]:.4f}  (macro)",
+            f"  Val F1   : {history['val_f1'][bp]:.4f}  (macro)",
+            f"  LR       : {history['lr'][bp]:.2e}",
+            "",
+            f"Final Epoch: {len(history['train_loss'])}",
+            f"  Val Loss : {history['val_loss'][-1]:.6f}",
+            f"  Val Acc  : {history['val_acc'][-1]:.4f}",
+            f"  Val F1   : {history['val_f1'][-1]:.4f}  (macro)",
+        ]
+        summary_text = "\n".join(summary_lines)
+    else:
+        summary_text = "No best epoch recorded."
+    ax7.text(0.05, 0.95, summary_text, transform=ax7.transAxes,
+             fontsize=11, verticalalignment="top", fontfamily="monospace",
+             bbox=dict(boxstyle="round,pad=0.5", facecolor="#F5F5F5", edgecolor="#CCCCCC"))
+    ax7.set_title("Training Summary", fontsize=12, fontweight="bold")
 
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -528,6 +568,9 @@ def train(cfg: TrainConfig):
         "val_loss": [],
         "train_acc": [],
         "val_acc": [],
+        "train_prec": [],
+        "train_rec": [],
+        "train_f1": [],
         "val_prec": [],
         "val_rec": [],
         "val_f1": [],
@@ -557,6 +600,9 @@ def train(cfg: TrainConfig):
         history["val_loss"].append(val_loss)
         history["train_acc"].append(train_metrics["acc"])
         history["val_acc"].append(val_metrics["acc"])
+        history["train_prec"].append(train_metrics["prec"])
+        history["train_rec"].append(train_metrics["rec"])
+        history["train_f1"].append(train_metrics["f1"])
         history["val_prec"].append(val_metrics["prec"])
         history["val_rec"].append(val_metrics["rec"])
         history["val_f1"].append(val_metrics["f1"])
@@ -574,6 +620,7 @@ def train(cfg: TrainConfig):
             f"Ep {epoch:03d}/{cfg.epochs} | "
             f"Loss={train_metrics['loss']:.3f}/{val_loss:.3f} | "
             f"Acc={train_metrics['acc']:.3f}/{val_metrics['acc']:.3f} | "
+            f"P={val_metrics['prec']:.3f} R={val_metrics['rec']:.3f} "
             f"F1={val_metrics['f1']:.3f} | "
             f"LR={current_lr:.2e} | {elapsed:.1f}s{marker}"
         )
