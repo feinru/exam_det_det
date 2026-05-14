@@ -29,6 +29,7 @@ import torch.nn as nn
 from torch.optim import Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, WeightedRandomSampler
+from sklearn.metrics import precision_score, recall_score, f1_score
 import matplotlib
 
 matplotlib.use("Agg")  # Non-interactive backend (aman di server)
@@ -159,16 +160,6 @@ class EarlyStopping:
 
 
 # ─────────────────────────────────────────────────────────────────
-# Metrics Helper
-# ─────────────────────────────────────────────────────────────────
-def compute_accuracy(logits: torch.Tensor, labels: torch.Tensor) -> float:
-    """Hitung binary accuracy dari logits (sebelum sigmoid)."""
-    preds = (torch.sigmoid(logits) >= 0.5).long().squeeze(1)
-    correct = (preds == labels).sum().item()
-    return correct / labels.size(0)
-
-
-# ─────────────────────────────────────────────────────────────────
 # Training & Validation Step
 # ─────────────────────────────────────────────────────────────────
 def train_one_epoch(
@@ -181,24 +172,25 @@ def train_one_epoch(
 ) -> Tuple[float, float]:
     """
     Satu epoch training.
-    Return: (avg_loss, avg_accuracy)
+    Return: dict berisi (loss, acc, prec, rec, f1)
     """
     model.train()
     total_loss = 0.0
     total_acc = 0.0
     n_batches = 0
+    all_preds = []
+    all_labels = []
 
     for features, labels in loader:
-        features = features.to(device)  # (B, 60, 51)
-        labels = labels.float().to(device)  # (B,)
-        labels = labels.unsqueeze(1)  # (B, 1) ← BCEWithLogitsLoss
+        features = features.to(device)
+        labels = labels.float().to(device)
+        labels = labels.unsqueeze(1)
 
         optimizer.zero_grad()
 
         if scaler_amp is not None:
-            # Mixed precision (GPU only)
             with torch.cuda.amp.autocast():
-                logits = model(features)  # (B, 1)
+                logits = model(features)
                 loss = criterion(logits, labels)
             scaler_amp.scale(loss).backward()
             scaler_amp.unscale_(optimizer)
@@ -212,12 +204,27 @@ def train_one_epoch(
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
 
-        acc = compute_accuracy(logits.detach(), labels.squeeze(1).long())
+        # Accumulate for metrics
+        preds = (torch.sigmoid(logits.detach()) >= 0.5).long().cpu().numpy().flatten()
+        all_preds.extend(preds)
+        all_labels.extend(labels.detach().cpu().numpy().flatten())
+
         total_loss += loss.item()
-        total_acc += acc
         n_batches += 1
 
-    return total_loss / n_batches, total_acc / n_batches
+    avg_loss = total_loss / n_batches
+    acc = (np.array(all_preds) == np.array(all_labels)).mean()
+    prec = precision_score(all_labels, all_preds, zero_division=0)
+    rec = recall_score(all_labels, all_preds, zero_division=0)
+    f1 = f1_score(all_labels, all_preds, zero_division=0)
+
+    return {
+        "loss": avg_loss,
+        "acc": acc,
+        "prec": prec,
+        "rec": rec,
+        "f1": f1
+    }
 
 
 @torch.no_grad()
@@ -226,12 +233,14 @@ def validate_one_epoch(
 ) -> Tuple[float, float]:
     """
     Satu epoch validasi.
-    Return: (avg_loss, avg_accuracy)
+    Return: dict berisi (loss, acc, prec, rec, f1)
     """
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
     n_batches = 0
+    all_preds = []
+    all_labels = []
 
     for features, labels in loader:
         features = features.to(device)
@@ -240,12 +249,27 @@ def validate_one_epoch(
         logits = model(features)
         loss = criterion(logits, labels)
 
-        acc = compute_accuracy(logits, labels.squeeze(1).long())
+        # Accumulate for metrics
+        preds = (torch.sigmoid(logits) >= 0.5).long().cpu().numpy().flatten()
+        all_preds.extend(preds)
+        all_labels.extend(labels.cpu().numpy().flatten())
+
         total_loss += loss.item()
-        total_acc += acc
         n_batches += 1
 
-    return total_loss / n_batches, total_acc / n_batches
+    avg_loss = total_loss / n_batches
+    acc = (np.array(all_preds) == np.array(all_labels)).mean()
+    prec = precision_score(all_labels, all_preds, zero_division=0)
+    rec = recall_score(all_labels, all_preds, zero_division=0)
+    f1 = f1_score(all_labels, all_preds, zero_division=0)
+
+    return {
+        "loss": avg_loss,
+        "acc": acc,
+        "prec": prec,
+        "rec": rec,
+        "f1": f1
+    }
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -504,6 +528,9 @@ def train(cfg: TrainConfig):
         "val_loss": [],
         "train_acc": [],
         "val_acc": [],
+        "val_prec": [],
+        "val_rec": [],
+        "val_f1": [],
         "lr": [],
         "best_epoch": None,
     }
@@ -515,20 +542,24 @@ def train(cfg: TrainConfig):
     for epoch in range(1, cfg.epochs + 1):
         t_start = time.time()
 
-        train_loss, train_acc = train_one_epoch(
+        train_metrics = train_one_epoch(
             model, train_loader, optimizer, criterion, device, amp_scaler
         )
-        val_loss, val_acc = validate_one_epoch(model, val_loader, criterion, device)
+        val_metrics = validate_one_epoch(model, val_loader, criterion, device)
 
         # LR Scheduler step
+        val_loss = val_metrics["loss"]
         scheduler.step(val_loss)
         current_lr = optimizer.param_groups[0]["lr"]
 
         # Catat history
-        history["train_loss"].append(train_loss)
+        history["train_loss"].append(train_metrics["loss"])
         history["val_loss"].append(val_loss)
-        history["train_acc"].append(train_acc)
-        history["val_acc"].append(val_acc)
+        history["train_acc"].append(train_metrics["acc"])
+        history["val_acc"].append(val_metrics["acc"])
+        history["val_prec"].append(val_metrics["prec"])
+        history["val_rec"].append(val_metrics["rec"])
+        history["val_f1"].append(val_metrics["f1"])
         history["lr"].append(current_lr)
 
         elapsed = time.time() - t_start
@@ -541,8 +572,9 @@ def train(cfg: TrainConfig):
 
         log.info(
             f"Ep {epoch:03d}/{cfg.epochs} | "
-            f"TrainLoss={train_loss:.4f} Acc={train_acc:.3f} | "
-            f"ValLoss={val_loss:.4f} Acc={val_acc:.3f} | "
+            f"Loss={train_metrics['loss']:.3f}/{val_loss:.3f} | "
+            f"Acc={train_metrics['acc']:.3f}/{val_metrics['acc']:.3f} | "
+            f"F1={val_metrics['f1']:.3f} | "
             f"LR={current_lr:.2e} | {elapsed:.1f}s{marker}"
         )
 
@@ -588,7 +620,9 @@ def train(cfg: TrainConfig):
     log.info(f"Best val loss  : {early_stop.best_loss:.4f}")
     # Pakai val_acc di epoch terbaik (by loss), BUKAN max across semua epoch
     best_ep_acc = history["val_acc"][history["best_epoch"] - 1]
-    log.info(f"Best val acc   : {best_ep_acc:.4f} (at best epoch)")
+    best_ep_f1  = history["val_f1"][history["best_epoch"] - 1]
+    log.info(f"Best val acc   : {best_ep_acc:.4f}")
+    log.info(f"Best val F1    : {best_ep_f1:.4f}")
     log.info(f"Model tersimpan: {model_path}")
     log.info(f"Grafik          : {plot_path}")
 
