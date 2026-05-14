@@ -38,7 +38,12 @@ import matplotlib.gridspec as gridspec
 
 # Import lokal
 from model import CheatingGRU
-from dataset import build_dataloaders, ExamCheatingDataset, FEATURE_DIM
+from dataset import (
+    build_dataloaders,
+    ExamCheatingDataset,
+    infer_feature_dim,
+)
+from dataset import infer_feature_dim
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -523,8 +528,14 @@ def train(cfg: TrainConfig):
     log.info(f"Train: {len(train_ds)} sampel | Val: {len(val_ds)} sampel")
 
     # ── Model ────────────────────────────────────────────────────
+    feature_dim = infer_feature_dim(cfg.feature_root)
+
+    log.info(f"Detected feature dimension: {feature_dim}")
+
+    input_dim=feature_dim,
+
     model = CheatingGRU(
-        input_dim=FEATURE_DIM,
+        input_dim=feature_dim,
         hidden_dim=cfg.hidden_dim,
         num_layers=cfg.num_layers,
         fc_dim=cfg.fc_dim,

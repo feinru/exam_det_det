@@ -20,8 +20,38 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 # ─────────────────────────────────────────────────────────────────
-SEQ_LEN     = 8     # ← sesuaikan dengan keputusan Fikar
-FEATURE_DIM = 38
+SEQ_LEN = 8
+
+
+def infer_feature_dim(feature_root: str, split: str = "train") -> int:
+    """
+    Otomatis membaca dimensi feature dari file .npy pertama.
+    """
+
+    split_dir = Path(feature_root) / split
+
+    if not split_dir.exists():
+        raise FileNotFoundError(f"Split dir tidak ditemukan: {split_dir}")
+
+    for video_dir in split_dir.iterdir():
+        if not video_dir.is_dir():
+            continue
+
+        for npy_file in video_dir.glob("*.npy"):
+            feat = np.load(str(npy_file))
+
+            if feat.ndim != 2:
+                raise ValueError(
+                    f"Feature harus shape (T, D), tapi dapat {feat.shape}"
+                )
+
+            feature_dim = feat.shape[1]
+
+            print(f"[Dataset] Auto-detected feature_dim = {feature_dim}")
+            return feature_dim
+
+    raise RuntimeError(f"Tidak ada file .npy di {split_dir}")
+FEATURE_DIM = None
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -133,7 +163,7 @@ class ExamCheatingDataset(Dataset):
         crop_root: str,
         split: str = "train",
         seq_len: int = SEQ_LEN,
-        feature_dim: int = FEATURE_DIM,
+        feature_dim: Optional[int] = None,
         labeling: Literal["any", "majority"] = "any",
         use_scaler: bool = False,
         scaler=None,
@@ -141,7 +171,11 @@ class ExamCheatingDataset(Dataset):
         verbose: bool = True,
     ):
         self.seq_len     = seq_len
-        self.feature_dim = feature_dim
+        self.feature_dim = (
+        feature_dim
+        if feature_dim is not None
+        else infer_feature_dim(feature_root, split)
+        )
         self.split       = split
         self.use_scaler  = use_scaler
         # Augmentasi HANYA saat training
@@ -241,7 +275,7 @@ def build_dataloaders(
     feature_root: str,
     crop_root: str,                     # ⚠️ BARU
     seq_len: int      = SEQ_LEN,
-    feature_dim: int  = FEATURE_DIM,
+    feature_dim: Optional[int] = None,
     batch_size: int   = 32,
     num_workers: int  = 0,
     use_scaler: bool  = False,
@@ -309,10 +343,14 @@ def pool_all_samples(feature_root, crop_root, labeling="any"):
 class KFoldDataset(Dataset):
     """Dataset dari subset samples, untuk dipakai di K-Fold split."""
 
-    def __init__(self, samples, seq_len=SEQ_LEN, feature_dim=FEATURE_DIM,
+    def __init__(self, samples, seq_len=SEQ_LEN, feature_dim=None,
                  scaler=None, augmentor=None):
         self.samples = samples
         self.seq_len = seq_len
+        if feature_dim is None:
+            sample_feat = np.load(str(samples[0][0]))
+            feature_dim = sample_feat.shape[1]
+
         self.feature_dim = feature_dim
         self.scaler = scaler
         self.augmentor = augmentor
