@@ -37,7 +37,7 @@ import matplotlib.gridspec as gridspec
 
 # Import lokal
 from model import CheatingGRU
-from dataset import build_dataloaders, ExamCheatingDataset
+from dataset import build_dataloaders, ExamCheatingDataset, FEATURE_DIM
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -460,7 +460,7 @@ def train(cfg: TrainConfig):
 
     # ── Model ────────────────────────────────────────────────────
     model = CheatingGRU(
-        input_dim=38,
+        input_dim=FEATURE_DIM,
         hidden_dim=cfg.hidden_dim,
         num_layers=cfg.num_layers,
         fc_dim=cfg.fc_dim,
@@ -587,7 +587,7 @@ def train(cfg: TrainConfig):
     log.info(f"Best epoch     : {history['best_epoch']}")
     log.info(f"Best val loss  : {early_stop.best_loss:.4f}")
     # Pakai val_acc di epoch terbaik (by loss), BUKAN max across semua epoch
-    best_ep_acc = history['val_acc'][history['best_epoch'] - 1]
+    best_ep_acc = history["val_acc"][history["best_epoch"] - 1]
     log.info(f"Best val acc   : {best_ep_acc:.4f} (at best epoch)")
     log.info(f"Model tersimpan: {model_path}")
     log.info(f"Grafik          : {plot_path}")
@@ -615,7 +615,7 @@ def load_best_model(
     cfg_dict = checkpoint["config"]
 
     model = CheatingGRU(
-        input_dim=51,
+        input_dim=FEATURE_DIM,
         hidden_dim=cfg_dict["hidden_dim"],
         num_layers=cfg_dict["num_layers"],
         fc_dim=cfg_dict["fc_dim"],
@@ -653,8 +653,9 @@ if __name__ == "__main__":
     parser.add_argument("--num-layers", type=int, default=2)
     parser.add_argument("--fc-dim", type=int, default=64)
     parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--bidirectional", action="store_true")
-    parser.add_argument("--no-attention", action="store_true")
+    parser.add_argument("--bidirectional", action="store_true", default=None, help="Enable bidirectional GRU")
+    parser.add_argument("--no-bidirectional", action="store_true", default=None, help="Disable bidirectional GRU")
+    parser.add_argument("--no-attention", action="store_true", help="Disable attention mechanism")
 
     # Training
     parser.add_argument("--epochs", type=int, default=50)
@@ -689,7 +690,7 @@ if __name__ == "__main__":
         num_layers=args.num_layers,
         fc_dim=args.fc_dim,
         dropout=args.dropout,
-        bidirectional=args.bidirectional,
+        bidirectional=args.bidirectional if args.bidirectional is not None else (False if args.no_bidirectional else TrainConfig.bidirectional),
         use_attention=not args.no_attention,
         epochs=args.epochs,
         batch_size=args.batch_size,
