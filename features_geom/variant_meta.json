@@ -1,0 +1,12 @@
+{
+  "variant": "geom",
+  "feature_dim": 28,
+  "seq_len": 8,
+  "components": [
+    "raw_kp",
+    "geom",
+    "body_rel",
+    "visibility"
+  ],
+  "description": "Koordinat + geometric head pose + head-body relation + visibility"
+}

@@ -1,0 +1,13 @@
+{
+  "variant": "full",
+  "feature_dim": 38,
+  "seq_len": 8,
+  "components": [
+    "raw_kp",
+    "geom",
+    "body_rel",
+    "visibility",
+    "velocity"
+  ],
+  "description": "Semua: koor + geom + body-rel + visibility + temporal velocity (= v3 lama)"
+}

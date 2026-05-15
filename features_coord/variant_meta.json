@@ -1,0 +1,10 @@
+{
+  "variant": "coord",
+  "feature_dim": 23,
+  "seq_len": 8,
+  "components": [
+    "raw_kp",
+    "visibility"
+  ],
+  "description": "Koordinat keypoints + visibility flags"
+}
